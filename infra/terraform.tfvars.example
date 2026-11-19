@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars and set the address that should receive alerts.
+# terraform.tfvars is gitignored and must never be committed.
+
+alert_email = "you@example.com"

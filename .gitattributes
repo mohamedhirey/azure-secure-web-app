@@ -1,0 +1,11 @@
+# Normalize every text file to LF in the repository and in the working tree.
+# Terraform, shell scripts and GitHub Actions all break or misbehave with CRLF.
+* text=auto eol=lf
+
+*.tf      text eol=lf
+*.hcl     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+

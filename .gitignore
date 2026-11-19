@@ -1,0 +1,31 @@
+# Never commit variable files - they carry your subscription ID.
+*.tfvars
+!*.tfvars.example
+
+# Never commit state. It contains full resource metadata.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Provider binaries and module caches.
+.terraform/
+crash.log
+crash.*.log
+
+# Plan files are readable archives of your infrastructure.
+*.tfplan
+tfplan
+
+# .terraform.lock.hcl is deliberately NOT ignored. Commit it so local runs and
+# CI resolve identical provider versions.
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# App build output
+app.zip
+__pycache__/
+.venv/

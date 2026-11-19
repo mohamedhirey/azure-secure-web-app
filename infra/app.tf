@@ -50,7 +50,7 @@ resource "azurerm_linux_web_app" "this" {
     # A Key Vault reference: the platform fetches the secret with the app's
     # identity and hands the app the value. The secret itself is never stored
     # in the app's configuration, in this repo, or in a pipeline.
-    DEMO_API_KEY = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.this.vault_uri}secrets/${azapi_resource.demo_api_key.name})"
+    DEMO_API_KEY = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.this.vault_uri}secrets/${local.demo_secret_name})"
 
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.this.connection_string
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "true" # install requirements.txt on deploy
@@ -58,6 +58,7 @@ resource "azurerm_linux_web_app" "this" {
 
   # The app must not start until it can actually reach and read its dependencies.
   depends_on = [
+    azapi_resource_action.demo_api_key,
     azurerm_private_endpoint.this,
     azurerm_role_assignment.app_reads_secrets,
     azurerm_cosmosdb_sql_role_assignment.app_reads_writes_items,

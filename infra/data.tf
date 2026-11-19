@@ -64,14 +64,23 @@ resource "random_password" "demo_api_key" {
   special = false
 }
 
+locals {
+  demo_secret_name = "demo-api-key"
+}
+
 # Written through Azure Resource Manager (control plane), not the vault's own
 # endpoint (data plane). That is why this works from your laptop even though
 # the vault has no public network access: Terraform never connects to the vault.
 # Reading the value back still needs the data plane, which is private.
-resource "azapi_resource" "demo_api_key" {
-  type      = "Microsoft.KeyVault/vaults/secrets@2023-07-01"
-  name      = "demo-api-key"
-  parent_id = azurerm_key_vault.this.id
+#
+# An action, not a managed resource. Resource Manager can PUT a secret but has
+# no DELETE for one, so `terraform destroy` on an azapi_resource fails with
+# 405 DeleteNotSupported and strands the vault behind it. An action leaves
+# nothing to delete, and the secret goes when the vault does.
+resource "azapi_resource_action" "demo_api_key" {
+  type        = "Microsoft.KeyVault/vaults/secrets@2023-07-01"
+  resource_id = "${azurerm_key_vault.this.id}/secrets/${local.demo_secret_name}"
+  method      = "PUT"
 
   body = {
     properties = {

@@ -31,6 +31,12 @@ provider "azurerm" {
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
+
+    # Deleting a workspace only soft-deletes it. It stays recoverable, logs and
+    # all, for 14 days. This build claims nothing remains, so delete it for real.
+    log_analytics_workspace {
+      permanently_delete_on_destroy = true
+    }
   }
 }
 

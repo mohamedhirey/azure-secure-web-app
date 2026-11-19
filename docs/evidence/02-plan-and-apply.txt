@@ -1,0 +1,114 @@
+# Captured from the Terraform runs of 2026-11-19 (UTC). Account identifiers are redacted.
+
+$ terraform plan        # infra/, region = westus3 (see the note at the end)
+   1  azapi_resource
+   1  azurerm_application_insights
+   1  azurerm_cosmosdb_account
+   1  azurerm_cosmosdb_sql_container
+   1  azurerm_cosmosdb_sql_database
+   1  azurerm_cosmosdb_sql_role_assignment
+   1  azurerm_key_vault
+   1  azurerm_linux_web_app
+   1  azurerm_log_analytics_workspace
+   1  azurerm_monitor_action_group
+   2  azurerm_monitor_diagnostic_setting
+   1  azurerm_monitor_metric_alert
+   1  azurerm_network_security_group
+   2  azurerm_network_security_rule
+   2  azurerm_private_dns_zone
+   2  azurerm_private_dns_zone_virtual_network_link
+   2  azurerm_private_endpoint
+   1  azurerm_resource_group
+   1  azurerm_role_assignment
+   1  azurerm_service_plan
+   2  azurerm_subnet
+   1  azurerm_subnet_network_security_group_association
+   1  azurerm_user_assigned_identity
+   1  azurerm_virtual_network
+   1  random_password
+   1  random_string
+Plan: 32 to add, 0 to change, 0 to destroy.
+
+# The three things GUIDE.md Step 9 says to read in the plan before applying:
+azurerm_cosmosdb_account   public_network_access_enabled = false   local_authentication_enabled = false
+azurerm_key_vault          public_network_access_enabled = false   rbac_authorization_enabled = true
+azurerm_linux_web_app      https_only = true   ftp_publish_basic_authentication_enabled = false   webdeploy_publish_basic_authentication_enabled = false
+public IP address resources in the plan: 0
+
+$ terraform apply -target=azurerm_service_plan.this        # stage 1: can this region grant an App Service plan?
+azurerm_resource_group.this: Creation complete after 30s
+azurerm_service_plan.this: Creation complete after 19s
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+$ terraform apply        # stage 2: everything else
+apply started 2026-11-19T02:34:30Z
+random_string.suffix: Creation complete after 0s
+random_password.demo_api_key: Creation complete after 0s
+azurerm_monitor_action_group.email: Creation complete after 4s
+azurerm_network_security_group.private_endpoints: Creation complete after 8s
+azurerm_network_security_rule.deny_all_inbound: Creation complete after 4s
+azurerm_virtual_network.this: Creation complete after 13s
+azurerm_network_security_rule.allow_https_from_app: Creation complete after 5s
+azurerm_subnet.private_endpoints: Creation complete after 8s
+azurerm_subnet.app: Creation complete after 14s
+azurerm_key_vault.this: Creation complete after 29s
+azapi_resource.demo_api_key: Creation complete after 2s
+azurerm_subnet_network_security_group_association.private_endpoints: Creation complete after 13s
+azurerm_user_assigned_identity.app: Creation complete after 35s
+azurerm_log_analytics_workspace.this: Creation complete after 48s
+azurerm_application_insights.this: Creation complete after 6s
+azurerm_role_assignment.app_reads_secrets: Creation complete after 32s
+azurerm_monitor_diagnostic_setting.key_vault: Creation complete after 22s
+azurerm_cosmosdb_account.this: Creation complete after 2m9s
+azurerm_cosmosdb_sql_database.this: Creation complete after 15s
+azurerm_cosmosdb_sql_container.this: Creation complete after 15s
+azurerm_private_dns_zone.this["cosmos"]: Creation complete after 35s
+azurerm_private_dns_zone.this["vault"]: Creation complete after 35s
+azurerm_cosmosdb_sql_role_assignment.app_reads_writes_items: Creation complete after 24s
+azurerm_private_dns_zone_virtual_network_link.this["vault"]: Creation complete after 33s
+azurerm_private_dns_zone_virtual_network_link.this["cosmos"]: Creation complete after 34s
+azurerm_private_endpoint.this["vault"]: Creation complete after 58s
+azurerm_private_endpoint.this["cosmos"]: Creation complete after 10m44s
+azurerm_linux_web_app.this: Creation complete after 1m49s
+azurerm_monitor_diagnostic_setting.web_app: Creation complete after 28s
+azurerm_monitor_metric_alert.http_5xx: Creation complete after 2m41s
+Apply complete! Resources: 30 added, 0 changed, 0 destroyed.
+apply finished 2026-11-19T02:53:13Z exit=0
+
+# Everything in the resource group once the apply finished:
+
+$ az resource list -g "$RG" --query "sort_by([],&type)[].{Type:type, Name:name}" -o table
+Type                                                   Name
+-----------------------------------------------------  ------------------------------------------------------------------
+Microsoft.DocumentDB/databaseAccounts                  cosmos-webapp-<suffix>
+Microsoft.Insights/actiongroups                        ag-webapp-cac-001
+Microsoft.Insights/components                          appi-webapp-cac-001
+Microsoft.Insights/metricalerts                        alert-webapp-http5xx
+Microsoft.KeyVault/vaults                              kv-webapp-<suffix>
+Microsoft.ManagedIdentity/userAssignedIdentities       id-webapp-cac-001
+Microsoft.Network/networkInterfaces                    pep-webapp-cosmos-cac-001.nic.<id>
+Microsoft.Network/networkInterfaces                    pep-webapp-vault-cac-001.nic.<id>
+Microsoft.Network/networkSecurityGroups                nsg-webapp-pe-cac-001
+Microsoft.Network/privateDnsZones                      privatelink.documents.azure.com
+Microsoft.Network/privateDnsZones                      privatelink.vaultcore.azure.net
+Microsoft.Network/privateDnsZones/virtualNetworkLinks  privatelink.vaultcore.azure.net/link-vault
+Microsoft.Network/privateDnsZones/virtualNetworkLinks  privatelink.documents.azure.com/link-cosmos
+Microsoft.Network/privateEndpoints                     pep-webapp-cosmos-cac-001
+Microsoft.Network/privateEndpoints                     pep-webapp-vault-cac-001
+Microsoft.Network/virtualNetworks                      vnet-webapp-cac-001
+Microsoft.OperationalInsights/workspaces               log-webapp-cac-001
+Microsoft.Web/serverFarms                              asp-webapp-cac-001
+Microsoft.Web/sites                                    app-webapp-<suffix>
+microsoft.alertsmanagement/smartDetectorAlertRules     Failure Anomalies - appi-webapp-cac-001
+microsoft.insights/actiongroups                        Application Insights Smart Detection
+
+# Why West US 3, and why two stages
+#
+# The project defaults to Canada Central. This subscription is a free trial, and Azure would not let
+# it create a Cosmos DB account in Canada Central or Canada East (the region reports
+# isSubscriptionRegionAccessAllowedForRegular = false). The App Service quota API also reported zero
+# B1 instances in every region that publishes a figure. West US 3 allowed both. Rather than find
+# that out ten minutes into an apply, the App Service plan was created first as a probe, then the rest.
+# GUIDE.md covers this case: set `location` in terraform.tfvars. The `cac` in the resource names
+# is the project's naming default, not the region these resources ran in.
+

@@ -1,0 +1,53 @@
+# Captured 2026-11-19 02:28 (UTC). Plan-only tests: nothing is created in Azure.
+# A test that has never been seen failing is not a test that can be trusted, so the
+# setting it guards is broken on purpose, the failure is observed, and the file is restored.
+
+$ terraform test        # infra, as written
+tests/posture.tftest.hcl... in progress
+  run "data_tier_has_no_public_network_path"... pass
+  run "no_keys_or_passwords_anywhere"... pass
+  run "web_app_is_https_only"... pass
+  run "private_endpoint_subnet_denies_by_default"... pass
+tests/posture.tftest.hcl... tearing down
+tests/posture.tftest.hcl... pass
+
+Success! 4 passed, 0 failed.
+
+$ # break it on purpose: Cosmos DB opened to the public network
+  public_network_access_enabled = false
+  public_network_access_enabled = true
+$ terraform test        # expected to FAIL
+tests/posture.tftest.hcl... in progress
+  run "data_tier_has_no_public_network_path"... fail
+
+Error: Test assertion failed
+
+  on tests/posture.tftest.hcl line 12, in run "data_tier_has_no_public_network_path":
+  12:     condition     = azurerm_cosmosdb_account.this.public_network_access_enabled == false
+    ├────────────────
+    │ Diff:
+    │ --- actual
+    │ +++ expected
+    │ - true
+    │ + false
+
+
+Cosmos DB must not be reachable from the internet.
+  run "no_keys_or_passwords_anywhere"... pass
+  run "web_app_is_https_only"... pass
+  run "private_endpoint_subnet_denies_by_default"... pass
+tests/posture.tftest.hcl... tearing down
+tests/posture.tftest.hcl... fail
+
+Failure! 3 passed, 1 failed.
+
+$ # restored; run again
+tests/posture.tftest.hcl... in progress
+  run "data_tier_has_no_public_network_path"... pass
+  run "no_keys_or_passwords_anywhere"... pass
+  run "web_app_is_https_only"... pass
+  run "private_endpoint_subnet_denies_by_default"... pass
+tests/posture.tftest.hcl... tearing down
+tests/posture.tftest.hcl... pass
+
+Success! 4 passed, 0 failed.

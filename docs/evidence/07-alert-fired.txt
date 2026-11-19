@@ -1,0 +1,35 @@
+# Captured 2026-11-19 02:58 (UTC). Account identifiers are redacted.
+
+$ for i in $(seq 12); do curl -s -o /dev/null -w "%{http_code} " "$URL/fail"; done; echo; date -u "+sent at %Y-%m-%d %H:%M:%S UTC"
+500 500 500 500 500 500 500 500 500 500 500 500 
+sent at 2026-11-19 02:58:33 UTC
+
+$ az monitor metrics alert show -g "$RG" -n alert-webapp-http5xx --query "{rule:name, enabled:enabled, severity:severity, window:windowSize, frequency:evaluationFrequency, metric:criteria.allOf[0].metricName, condition:join(' ',[criteria.allOf[0].timeAggregation, criteria.allOf[0].operator, to_string(criteria.allOf[0].threshold)])}" -o jsonc
+{
+  "condition": "Total GreaterThan 5.0",
+  "enabled": true,
+  "frequency": "PT1M",
+  "metric": "Http5xx",
+  "rule": "alert-webapp-http5xx",
+  "severity": 2,
+  "window": "PT5M"
+}
+
+$ az monitor metrics list --resource "$(az webapp show -g "$RG" -n "$APP" --query id -o tsv)" --metric Http5xx --interval PT1M --aggregation Total --start-time "$(date -u -d "-12 min" +%Y-%m-%dT%H:%M:%SZ)" --query "value[0].timeseries[0].data[?total>\`0\`].{Minute:timeStamp,Http5xx:total}" -o table    # what the platform counted
+Minute                Http5xx
+--------------------  ---------
+2026-11-19T02:59:00Z  12.0
+
+# Captured after the errors stopped. The instance fired at 03:01 and resolved on its own once the
+# five-minute window was clean again. The action group listed below is what the rule notifies;
+# the emails themselves are not something a CLI capture can show.
+
+$ az rest --method get --url "/subscriptions/$SUBID/providers/Microsoft.AlertsManagement/alerts?api-version=2019-05-05-preview&targetResourceGroup=$RG" --query "value[].properties.essentials.[alertRule, monitorCondition, severity, startDateTime, monitorConditionResolvedDateTime]" -o tsv | sed -E "s#/subscriptions/[^\t]*/metricAlerts/##" | (echo -e "Rule\tCondition\tSeverity\tFired\tResolved"; cat) | column -t -s "$(printf "\t")"    # Azure Monitor: the alert instance
+Rule                  Condition  Severity  Fired                         Resolved
+alert-webapp-http5xx  Resolved   Sev2      2026-11-19T03:01:14.8289765Z  2026-11-19T03:08:16.0615125Z
+
+$ az monitor action-group show -g "$RG" -n ag-webapp-cac-001 --query "emailReceivers[].{Receiver:name, Status:status, Address:emailAddress}" -o table    # who was notified
+Receiver    Status    Address
+----------  --------  ---------------------
+owner       Enabled   <alert-email>
+

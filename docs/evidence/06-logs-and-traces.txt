@@ -1,0 +1,82 @@
+# Captured 2026-11-19 03:06 (UTC). Account identifiers and public addresses are redacted.
+# `kql` posts the query to the Log Analytics query API for workspace $WS, the same API behind
+# `az monitor log-analytics query -w "$WS" --analytics-query "..."`.
+
+## 1. Platform log: every HTTP request the web app served
+
+The two 499s are my own first probes, which gave up while the app was still cold-starting.
+
+$ kql "AppServiceHTTPLogs | where CsUriStem in ('/', '/health', '/fail') | summarize requests=count() by CsMethod, CsUriStem, ScStatus | order by requests desc"
+CsMethod  CsUriStem  ScStatus  requests
+--------  ---------  --------  --------
+GET       /          200       17      
+GET       /fail      500       12      
+GET       /health    200       4       
+GET       /health    499       1       
+GET       /          499       1       
+(5 rows)
+
+$ kql "AppServiceHTTPLogs | where CsUriStem in ('/', '/fail') | project Time=format_datetime(TimeGenerated,'yyyy-MM-dd HH:mm:ss'), CsMethod, CsUriStem, ScStatus, TimeTakenMs=TimeTaken | order by Time desc | take 6"
+Time                 CsMethod  CsUriStem  ScStatus  TimeTakenMs
+-------------------  --------  ---------  --------  -----------
+2026-11-19 03:00:55  GET       /          200       105        
+2026-11-19 03:00:22  GET       /          200       48         
+2026-11-19 03:00:22  GET       /          200       36         
+2026-11-19 03:00:21  GET       /          200       43         
+2026-11-19 03:00:21  GET       /          200       36         
+2026-11-19 03:00:20  GET       /          200       40         
+(6 rows)
+
+## 2. Key Vault audit log: who asked for the secret, from where, and what the vault said
+
+Read it top to bottom. Terraform writes the secret through the control plane. The app's own
+identity is then REFUSED three times when the platform reaches the vault from the App Service's
+public address, and ALLOWED when the same identity arrives from 10.60.1.x, the app subnet, over
+the private endpoint. Same identity, same secret: the only difference is the network path.
+
+The last four rows are the break-in attempt in 05-data-tier-private.txt: refused first by RBAC,
+and then, once the role had been granted, by the network.
+
+$ kql "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.KEYVAULT' and OperationName in ('SecretGet','SecretResourcePut') | project Time=format_datetime(TimeGenerated,'yyyy-MM-dd HH:mm:ss'), OperationName, Result=ResultSignature, Http=toint(httpStatusCode_d), CallerIPAddress, Caller=identity_claim_oid_g, Detail=substring(replace_string(ResultDescription,'\n',' '),0,58) | order by Time asc"
+Time                 OperationName      Result     Http  CallerIPAddress          Caller                    Detail                                                    
+-------------------  -----------------  ---------  ----  -----------------------  ------------------------  ----------------------------------------------------------
+2026-11-19 02:35:12  SecretResourcePut  OK         200   <ip-redacted>                                                                                                
+2026-11-19 02:48:56  SecretGet          Forbidden  403   <app-service-public-ip>  <app-identity-object-id>  Public network access is disabled and request is not from 
+2026-11-19 02:49:28  SecretGet          Forbidden  403   <app-service-public-ip>  <app-identity-object-id>  Public network access is disabled and request is not from 
+2026-11-19 02:49:28  SecretGet          OK         200   10.60.1.254              <app-identity-object-id>                                                            
+2026-11-19 02:49:29  SecretGet          OK         200   10.60.1.254              <app-identity-object-id>                                                            
+2026-11-19 02:50:43  SecretGet          Forbidden  403   <app-service-public-ip>  <app-identity-object-id>  Public network access is disabled and request is not from 
+2026-11-19 02:51:31  SecretGet          OK         200   10.60.1.254              <app-identity-object-id>                                                            
+2026-11-19 02:59:08  SecretGet          Forbidden  403   <ip-redacted>            <user-object-id>          Caller is not authorized to perform action on resource. If
+2026-11-19 03:00:02  SecretGet          Forbidden  403   <ip-redacted>            <user-object-id>          Caller is not authorized to perform action on resource. If
+2026-11-19 03:00:24  SecretGet          Forbidden  403   <ip-redacted>            <user-object-id>          Public network access is disabled and request is not from 
+2026-11-19 03:01:41  SecretGet          Forbidden  403   <ip-redacted>            <user-object-id>          Public network access is disabled and request is not from 
+(11 rows)
+
+## 3. Application Insights: the traces the app itself sent
+
+What the portal draws as the application map: the web app and its calls to Cosmos DB, with
+response times. The single 404 is the very first visit, when the counter document did not exist
+yet; the app caught it and created the document.
+
+$ kql "AppRequests | summarize requests=count(), avg_ms=round(avg(DurationMs),1) by Name, ResultCode | order by requests desc"
+Name                   ResultCode  requests  avg_ms
+---------------------  ----------  --------  ------
+GET /                  200         18        1084.4
+GET /health            200         13        5.7   
+GET /fail              500         12        3     
+GET /robots933456.txt  404         2         1     
+(4 rows)
+
+$ kql "AppDependencies | where Target has 'documents.azure.com' and Name startswith_cs 'GET /dbs' or Name startswith_cs 'POST /dbs' | summarize calls=count(), avg_ms=round(avg(DurationMs),1) by Target, Operation=Name, ResultCode | order by calls desc"
+Target                                              Operation                                  ResultCode  calls  avg_ms
+--------------------------------------------------  -----------------------------------------  ----------  -----  ------
+cosmos-webapp-<suffix>-westus3.documents.azure.com  GET /dbs/appdb/colls/visits/docs/counter/  200         18     50.1  
+cosmos-webapp-<suffix>-westus3.documents.azure.com  POST /dbs/appdb/colls/visits/docs/         200         18     10.3  
+cosmos-webapp-<suffix>-westus3.documents.azure.com  GET /dbs/appdb/colls/visits/               200         2      1027.5
+cosmos-webapp-<suffix>-westus3.documents.azure.com  GET /dbs/appdb/colls/visits/pkranges/      200         2      29    
+cosmos-webapp-<suffix>-westus3.documents.azure.com  GET /dbs/appdb/colls/visits/pkranges/      304         2      6     
+cosmos-webapp-<suffix>-westus3.documents.azure.com  GET /dbs/appdb/colls/visits/docs/counter/  404         1      81    
+cosmos-webapp-<suffix>-westus3.documents.azure.com  POST /dbs/appdb/colls/visits/docs/         201         1      180   
+(7 rows)
+

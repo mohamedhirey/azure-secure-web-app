@@ -1,0 +1,70 @@
+# Captured 2026-11-19 (UTC). Account identifiers are redacted.
+
+## 1. Deploying the code (GUIDE.md Step 11)
+
+$ (cd ../app && zip -r ../app.zip . -x "__pycache__/*")
+$ az webapp deploy --resource-group "$RG" --name "$APP" --src-path ../app.zip --type zip
+deploy started 2026-11-19T02:54:49Z
+Warmed up Kudu instance successfully.
+Polling the status of sync deployment. Start Time: 2026-11-19 02:56:56.671203+00:00 UTC
+Status: Build successful. Time: 1(s)
+Status: Starting the site...        (repeated 38 times, from 17 s to 598 s)
+Status: Site failed to start. Time: 613(s)
+Raw Error   : Deployment failed because the site failed to start within 10 mins.
+InprogressInstances: 0, SuccessfulInstances: 0, FailedInstances: 1
+deploy finished 2026-11-19T03:07:18Z exit=1
+
+The command did NOT end with a success message, and that is recorded here as it happened. Its
+tracker waited ten minutes for the platform to report the instance as started, saw one failed
+instance, and gave up. The app had by then been answering for nine minutes (section 2). What the
+platform itself says:
+
+$ az webapp log deployment list -g "$RG" -n "$APP" --query "[].{Status:status, Complete:complete, Active:active, Started:start_time, Finished:end_time, Kind:message}" -o table    # status 4 = success
+Status    Complete    Active    Started                       Finished                      Kind
+--------  ----------  --------  ----------------------------  ----------------------------  ---------
+4         True        True      2026-11-19T02:55:16.9615547Z  2026-11-19T02:56:53.0425641Z  OneDeploy
+
+$ az webapp troubleshoot status --name "$APP" --resource-group "$RG" --query "instances[].{state:state, details:details, startsSucceeded:startup.Succeeded, startsFailed:startup.Failed, mostRecentFailure:startup.MostRecentFailure, mostRecentSuccess:startup.MostRecentSuccess}" -o jsonc 2>/dev/null
+[
+  {
+    "details": "Site started at 11/19/2026 02:58:08 (UTC)",
+    "mostRecentFailure": "2026-11-19T02:50:11.3823594Z",
+    "mostRecentSuccess": "2026-11-19T02:57:00.1367962Z",
+    "startsFailed": "1",
+    "startsSucceeded": "3",
+    "state": "Started"
+  }
+]
+
+The single failed container start is from 02:50, while Terraform was still creating the empty web
+app, four minutes before this deployment began at 02:54. Every start since has succeeded.
+
+## 2. The app, answering (GUIDE.md Step 12)
+
+Captured at 02:58 UTC, one minute after the build finished:
+
+$ curl -s "$URL/health"; echo
+ok
+
+$ curl -s "$URL/"; curl -s "$URL/"; curl -s "$URL/"
+{"secret_from_key_vault":true,"visits":5}
+{"secret_from_key_vault":true,"visits":6}
+{"secret_from_key_vault":true,"visits":7}
+
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" "http://${URL#https://}/"    # plain HTTP is redirected to HTTPS
+301 -> https://app-webapp-<suffix>.azurewebsites.net/
+
+And again at the end of the session, after the alert drill:
+
+$ curl -s "$URL/health"; echo; curl -s "$URL/"
+ok
+{"secret_from_key_vault":true,"visits":21}
+
+$ az webapp show -g "$RG" -n "$APP" --query "{state:state, availability:availabilityState, runtime:siteConfig.linuxFxVersion, location:location}" -o jsonc
+{
+  "availability": "Normal",
+  "location": "West US 3",
+  "runtime": "PYTHON|3.12",
+  "state": "Running"
+}
+

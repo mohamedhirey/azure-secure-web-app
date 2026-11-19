@@ -1,0 +1,38 @@
+# Captured 2026-11-19 03:00 (UTC). Account identifiers are redacted.
+
+$ az webapp identity show -g "$RG" -n "$APP" --query "{type:type, identities:length(userAssignedIdentities)}" -o jsonc
+{
+  "identities": 1,
+  "type": "UserAssigned"
+}
+
+$ az role assignment list --assignee "$MIP" --all --query "[].{Role:roleDefinitionName,Scope:scope}" -o table | sed -E "s#/subscriptions/.*/providers/#.../providers/#"    # Azure RBAC: everything the app identity can do
+Role                    Scope
+----------------------  -------------------------------------------------------------------------------------------------------------------------------------------
+Key Vault Secrets User  .../providers/Microsoft.KeyVault/vaults/kv-webapp-<suffix>
+
+$ az cosmosdb sql role assignment list -g "$RG" -a "$COSMOS" --query "[].{Principal:principalId, Role:roleDefinitionId, Scope:scope}" -o tsv | sed -E "s#/subscriptions/[^\t]*/databaseAccounts/[^/\t]*##g" | column -t    # Cosmos DB data-plane roles
+<app-identity-object-id>  /sqlRoleDefinitions/00000000-0000-0000-0000-000000000002  /dbs/appdb
+
+$ az cosmosdb sql role definition show -g "$RG" -a "$COSMOS" --id 00000000-0000-0000-0000-000000000002 --query "{name:roleName, dataActions:permissions[0].dataActions}" -o jsonc
+{
+  "dataActions": [
+    "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/*",
+    "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/*"
+  ],
+  "name": "Cosmos DB Built-in Data Contributor"
+}
+
+$ az network nsg rule list -g "$RG" --nsg-name nsg-webapp-pe-cac-001 --query "sort_by([],&priority)[].{Priority:priority,Name:name,Access:access,Source:sourceAddressPrefix,Port:destinationPortRange}" -o table    # the private-endpoint subnet
+Priority    Name                     Access    Source        Port
+----------  -----------------------  --------  ------------  ------
+200         AllowHttpsFromAppSubnet  Allow     10.60.1.0/24  443
+4096        DenyAllInbound           Deny      *             *
+
+$ az network vnet subnet list -g "$RG" --vnet-name vnet-webapp-cac-001 --query "[].{Subnet:name,Cidr:addressPrefixes[0],PrivateEndpointPolicies:privateEndpointNetworkPolicies,Delegation:delegations[0].serviceName}" -o table
+Subnet    Cidr          PrivateEndpointPolicies    Delegation
+--------  ------------  -------------------------  -------------------------
+snet-app  10.60.1.0/24  Disabled                   Microsoft.Web/serverFarms
+snet-pe   10.60.2.0/24  Enabled
+

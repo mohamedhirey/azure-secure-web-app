@@ -1,0 +1,133 @@
+# Teardown (GUIDE.md Step 17). Captured 2026-11-19 (UTC). Account identifiers are redacted.
+
+## 1. First attempt: `terraform destroy` failed
+
+$ terraform destroy
+destroy started 2026-11-19T03:10:43Z
+azurerm_monitor_metric_alert.http_5xx: Destruction complete after 2s
+azurerm_network_security_rule.deny_all_inbound: Destruction complete after 3s
+azurerm_monitor_action_group.email: Destruction complete after 1s
+azurerm_subnet_network_security_group_association.private_endpoints: Destruction complete after 6s
+azurerm_network_security_rule.allow_https_from_app: Destruction complete after 16s
+azurerm_network_security_group.private_endpoints: Destruction complete after 2s
+azurerm_monitor_diagnostic_setting.key_vault: Destruction complete after 1m20s
+azurerm_monitor_diagnostic_setting.web_app: Destruction complete after 1m42s
+azurerm_linux_web_app.this: Destruction complete after 1m5s
+azurerm_application_insights.this: Destruction complete after 1s
+azurerm_role_assignment.app_reads_secrets: Destruction complete after 3s
+azurerm_service_plan.this: Destruction complete after 9s
+azurerm_subnet.app: Destruction complete after 11s
+azurerm_cosmosdb_sql_container.this: Destruction complete after 12s
+azurerm_cosmosdb_sql_role_assignment.app_reads_writes_items: Destruction complete after 23s
+azurerm_log_analytics_workspace.this: Destruction complete after 22s
+azurerm_user_assigned_identity.app: Destruction complete after 5s
+azurerm_private_endpoint.this["vault"]: Destruction complete after 34s
+azurerm_cosmosdb_sql_database.this: Destruction complete after 12s
+azurerm_private_endpoint.this["cosmos"]: Destruction complete after 1m15s
+azurerm_subnet.private_endpoints: Destruction complete after 12s
+azurerm_private_dns_zone_virtual_network_link.this["vault"]: Destruction complete after 2m17s
+azurerm_private_dns_zone_virtual_network_link.this["cosmos"]: Destruction complete after 2m18s
+azurerm_virtual_network.this: Destruction complete after 11s
+azurerm_private_dns_zone.this["vault"]: Destruction complete after 32s
+azurerm_private_dns_zone.this["cosmos"]: Destruction complete after 32s
+azurerm_cosmosdb_account.this: Destruction complete after 8m21s
+
+Error: Failed to delete resource
+
+deleting Resource: (ResourceId
+"/subscriptions/<subscription-id>/resourceGroups/rg-webapp-cac-001/providers/Microsoft.KeyVault/vaults/kv-webapp-<suffix>/secrets/demo-api-key"
+/ Api Version "2023-07-01"): DELETE
+https://management.azure.com/subscriptions/<subscription-id>/resourceGroups/rg-webapp-cac-001/providers/Microsoft.KeyVault/vaults/kv-webapp-<suffix>/secrets/demo-api-key
+--------------------------------------------------------------------------------
+RESPONSE 405: 405 Method Not Allowed
+ERROR CODE: DeleteNotSupported
+--------------------------------------------------------------------------------
+destroy finished 2026-11-19T03:26:37Z exit=1
+
+27 of 32 resources were gone. The Key Vault, the secret in it and the resource group were not.
+
+The cause was in this repository, not in Azure. The secret was a managed `azapi_resource`.
+Resource Manager can create a Key Vault secret, but it has no DELETE for one, so Terraform could
+not destroy the thing it had created and stopped with the vault still standing behind it.
+
+## 2. Recovery: drop the secret from state, destroy again
+
+$ terraform state rm azapi_resource.demo_api_key
+Removed azapi_resource.demo_api_key
+Successfully removed 1 resource instance(s).
+$ terraform destroy        # second run
+started 2026-11-19T03:27:36Z
+random_password.demo_api_key: Destruction complete after 0s
+azurerm_key_vault.this: Destruction complete after 18s
+random_string.suffix: Destruction complete after 0s
+azurerm_resource_group.this: Destruction complete after 1m9s
+Destroy complete! Resources: 4 destroyed.
+exit=0
+finished 2026-11-19T03:29:16Z
+
+The secret went with the vault, and the vault was purged, not just soft-deleted.
+
+## 3. The fix, and proof that it works
+
+`infra/data.tf` now writes the secret with `azapi_resource_action`: a PUT, with nothing to
+delete afterwards. `infra/versions.tf` now sets `permanently_delete_on_destroy` for the Log
+Analytics workspace, because a subscription-wide check after the second destroy found the
+workspace only soft-deleted: still recoverable, logs and all, for 14 days.
+
+Neither change was taken on trust. The vault, the secret and the workspace were created again on
+their own, and destroyed in a single pass:
+
+$ terraform apply -target=azapi_resource_action.demo_api_key -target=azurerm_log_analytics_workspace.this
+started 2026-11-19T03:32:02Z
+random_string.suffix: Creation complete after 0s
+random_password.demo_api_key: Creation complete after 0s
+azurerm_resource_group.this: Creation complete after 26s
+azurerm_key_vault.this: Creation complete after 29s
+azapi_resource_action.demo_api_key: Creation complete after 2s
+azurerm_log_analytics_workspace.this: Creation complete after 47s
+Apply complete! Resources: 6 added, 0 changed, 0 destroyed.
+exit=0
+finished 2026-11-19T03:33:23Z
+
+$ az rest --method get --url "$KVID/secrets?api-version=2023-07-01" --query "value[].name" -o tsv    # the secret, read back through the control plane
+demo-api-key
+
+$ terraform destroy        # one pass
+started 2026-11-19T03:33:42Z
+azapi_resource_action.demo_api_key: Destruction complete after 0s
+random_password.demo_api_key: Destruction complete after 0s
+azurerm_key_vault.this: Destruction complete after 11s
+random_string.suffix: Destruction complete after 0s
+azurerm_log_analytics_workspace.this: Destruction complete after 22s
+azurerm_resource_group.this: Destruction complete after 17s
+Destroy complete! Resources: 6 destroyed.
+exit=0
+finished 2026-11-19T03:34:34Z
+
+## 4. Verified from Azure, across the whole subscription
+
+$ az group exists --name rg-webapp-cac-001
+false
+
+$ az keyvault list-deleted --query "length(@)" -o tsv    # soft-deleted key vaults
+0
+
+$ az rest --method get --url "/subscriptions/$SUBID/providers/Microsoft.OperationalInsights/deletedWorkspaces?api-version=2023-09-01" --query "length(value)" -o tsv    # soft-deleted Log Analytics workspaces
+0
+
+$ az group list --query "length(@)" -o tsv    # resource groups in the subscription
+0
+
+$ az resource list --query "length(@)" -o tsv    # resources in the subscription
+0
+
+$ ls infra/*.tfstate* app.zip 2>/dev/null | wc -l    # local state files and build output left (run from the repository root)
+0
+
+One more thing the subscription-wide check found. Azure creates a `NetworkWatcherRG` resource
+group by itself the first time a virtual network appears in a region. It is free and it is not
+part of this build, but it was there, so it was removed as well:
+`az group delete --name NetworkWatcherRG --yes`.
+
+What is left on purpose: a $10 monthly budget alert on the subscription, and the resource
+provider registrations. Neither is a resource and neither can cost anything.

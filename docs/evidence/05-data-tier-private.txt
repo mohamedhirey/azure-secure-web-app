@@ -1,0 +1,94 @@
+# Captured 2026-11-19 03:01 (UTC). Account identifiers and client addresses are redacted.
+
+## 1. The settings, read back from the live resources
+
+$ az cosmosdb show -g "$RG" -n "$COSMOS" --query "{PublicAccess:publicNetworkAccess, KeysDisabled:disableLocalAuth, Capability:capabilities[0].name}" -o table
+PublicAccess    KeysDisabled    Capability
+--------------  --------------  ----------------
+Disabled        True            EnableServerless
+
+$ az keyvault show -n "$KV" --query "properties.{PublicAccess:publicNetworkAccess, RbacOnly:enableRbacAuthorization}" -o table
+PublicAccess    RbacOnly
+--------------  ----------
+Disabled        True
+
+$ for pe in $(az network private-endpoint list -g "$RG" --query "[].name" -o tsv); do echo "$pe  $(az network private-endpoint show -g "$RG" -n "$pe" --query "privateLinkServiceConnections[0].privateLinkServiceConnectionState.status" -o tsv)  $(az network nic show --ids "$(az network private-endpoint show -g "$RG" -n "$pe" --query "networkInterfaces[0].id" -o tsv)" --query "ipConfigurations[0].privateIPAddress" -o tsv)"; done | column -t    # endpoint, connection state, private address
+pep-webapp-cosmos-cac-001  Approved  10.60.2.4
+pep-webapp-vault-cac-001   Approved  10.60.2.6
+
+$ az webapp config appsettings list -g "$RG" -n "$APP" --query "[].name" -o tsv    # setting NAMES only: no key or connection string to the database
+APPLICATIONINSIGHTS_CONNECTION_STRING
+AZURE_CLIENT_ID
+COSMOS_CONTAINER
+COSMOS_DATABASE
+COSMOS_ENDPOINT
+SCM_DO_BUILD_DURING_DEPLOYMENT
+WEBSITE_HEALTHCHECK_MAXPINGFAILURES
+DEMO_API_KEY
+
+$ az rest --method get --url "/subscriptions/$SUBID/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/config/configreferences/appsettings?api-version=2024-04-01" --query "value[].properties.{Secret:secretName, Status:status, Vault:vaultName, Identity:identityType}" -o table    # how the platform resolved the Key Vault reference
+Secret        Status    Vault               Identity
+------------  --------  ------------------  ------------
+demo-api-key  Resolved  kv-webapp-<suffix>  UserAssigned
+
+$ az webapp show -g "$RG" -n "$APP" --query "{httpsOnly:httpsOnly, identity:identity.type, outboundSubnet:virtualNetworkSubnetId}" -o jsonc | sed -E "s#/subscriptions/.*/subnets/#.../subnets/#"
+{
+  "httpsOnly": true,
+  "identity": "UserAssigned",
+  "outboundSubnet": ".../subnets/snet-app"
+}
+
+$ for p in ftp scm; do az rest --method get --url "/subscriptions/$SUBID/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/basicPublishingCredentialsPolicies/$p?api-version=2024-04-01" --query "{policy:name, passwordsAllowed:properties.allow}" -o tsv; done    # publishing passwords
+ftp	False
+scm	False
+
+$ for z in privatelink.documents.azure.com privatelink.vaultcore.azure.net; do az network private-dns record-set a list -g "$RG" -z "$z" --query "[].{Zone:'$z', Name:name, PrivateAddress:aRecords[0].ipv4Address}" -o tsv; done | column -t    # what the private DNS zones make the normal hostnames resolve to, inside the VNet
+privatelink.documents.azure.com  cosmos-webapp-<suffix>          10.60.2.4
+privatelink.documents.azure.com  cosmos-webapp-<suffix>-westus3  10.60.2.5
+privatelink.vaultcore.azure.net  kv-webapp-<suffix>              10.60.2.6
+
+## 2. Break-in attempt on Key Vault: the subscription Owner, from outside the virtual network
+
+### 2a. Owner, holding no data-plane role (captured 2026-11-19 02:58 UTC)
+
+Refused by RBAC. Owner is a control-plane role: it can delete the vault but cannot read a secret in it.
+
+$ az keyvault secret show --vault-name "$KV" --name demo-api-key 2>&1 | head -12
+ERROR: (Forbidden) Caller is not authorized to perform action on resource.
+If role assignments, deny assignments or role definitions were changed recently, please observe propagation time.
+Caller: appid=04b07795-8ddb-461a-bbee-02f9e1bf7b46;oid=<user-object-id>;iss=https://sts.windows.net/<tenant-id>/
+Action: 'Microsoft.KeyVault/vaults/secrets/getSecret/action'
+Resource: '/subscriptions/<subscription-id>/resourcegroups/rg-webapp-cac-001/providers/microsoft.keyvault/vaults/kv-webapp-<suffix>/secrets/demo-api-key'
+Assignment: (not found)
+DenyAssignmentId: null
+DecisionReason: null 
+Vault: kv-webapp-<suffix>;location=westus3
+
+Code: Forbidden
+Message: Caller is not authorized to perform action on resource.
+
+### 2b. Take RBAC out of the picture: give the Owner the same role the app holds, and try again
+
+$ az role assignment create --assignee-object-id "$ME" --assignee-principal-type User --role "Key Vault Secrets User" --scope "$KVID"
+
+$ az keyvault secret show --vault-name "$KV" --name demo-api-key 2>&1 | sed -n "1,3p;/Inner error/,\$p"
+ERROR: (Forbidden) Public network access is disabled and request is not from a trusted service nor via an approved private link.
+Caller: appid=04b07795-8ddb-461a-bbee-02f9e1bf7b46;oid=<user-object-id>;iss=https://sts.windows.net/<tenant-id>/
+Vault: kv-webapp-<suffix>;location=westus3
+Inner error: {
+    "code": "ForbiddenByConnection"
+}
+
+Refused by the network this time. The permission is now in place and the request still never reaches the secret.
+
+$ az role assignment delete --assignee "$ME" --role "Key Vault Secrets User" --scope "$KVID" && echo "temporary role removed"
+temporary role removed
+
+## 3. Break-in attempt on Cosmos DB: a valid Entra ID token, from the internet
+
+$ TOKEN=$(az account get-access-token --resource https://cosmos.azure.com --query accessToken -o tsv)
+AUTH=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(\"type=aad&ver=1.0&sig=\"+sys.argv[1], safe=\"\"))" "$TOKEN")
+curl -s -w "\nHTTP %{http_code}\n" -H "Authorization: $AUTH" -H "x-ms-version: 2018-12-31" -H "x-ms-date: $(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S GMT")" -H "x-ms-documentdb-partitionkey: [\"counter\"]" "https://$COSMOS.documents.azure.com/dbs/appdb/colls/visits/docs/counter"
+{"code":"Forbidden","message":"Request originated from IP <ip-redacted> through public internet. This is blocked by your Cosmos DB account firewall settings. More info: https://aka.ms/cosmosdb-tsg-forbidden\r\nActivityId: <activity-id>, Microsoft.Azure.Documents.Common/2.14.0"}
+HTTP 403
+

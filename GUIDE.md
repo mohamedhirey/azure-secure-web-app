@@ -449,7 +449,7 @@ An alert that has never been seen firing is not an alert that can be trusted.
 
 Save the output of Steps 9 to 15 to `../docs/evidence/`: the plan and apply, the application's responses, the settings and refusals from Step 13, the log queries, and the alert's fired and resolved times.
 
-Redact the subscription ID, tenant ID, identity object IDs, the resource name suffix, public addresses and the alert address before committing anything. Edit nothing else.
+Redact the subscription ID, tenant ID, identity object IDs, the resource name suffix, public addresses and the alert address before committing anything. Long Terraform output may be condensed to the lines that carry the result. Alter nothing.
 
 **Done when** the captured output is in `docs/evidence/`, redacted.
 

@@ -1,8 +1,8 @@
 # Deployment evidence
 
-This web app and everything under it was deployed to a real Azure subscription, verified and removed again on **19 November 2026 (UTC)**. Everything in this folder was captured during that session.
+This web app and everything under it was deployed to a real Azure subscription, verified and removed again on **19 November 2026 (UTC)**. Everything in this folder was captured during that session. It describes release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0).
 
-Subscription, tenant and identity IDs, the random suffix in resource names, public addresses and the alert email address are redacted. Nothing else is edited.
+Subscription, tenant and identity IDs, the random suffix in resource names, public addresses and the alert email address are redacted. Long Terraform output is condensed to the lines that carry the result. Nothing is altered.
 
 It ran in **West US 3**, not the project's default of Canada Central. The subscription is a free trial, and Azure would not let it create a Cosmos DB account in either Canadian region. `GUIDE.md` covers that case, and [`02-plan-and-apply.txt`](02-plan-and-apply.txt) has the detail. The `cac` in the resource names is the project's naming default, not the region.
 

@@ -117,13 +117,13 @@ azure-secure-web-app/
 │   ├── monitoring.tf            Log Analytics, Application Insights, diagnostics, alert
 │   ├── variables.tf  outputs.tf  versions.tf
 │   ├── terraform.tfvars.example
-│   └── tests/posture.tftest.hcl 4 unit tests, plan-only
+│   └── tests/posture.tftest.hcl 4 unit tests, plan-only, mocked providers
 │
 ├── app/                         The web app
 │   ├── app.py                   Flask: visit counter in Cosmos DB, /health, /fail
 │   └── requirements.txt
 │
-├── .github/workflows/ci.yml     fmt, validate, tflint — no cloud credentials
+├── .github/workflows/ci.yml     fmt, validate, unit tests, tflint — no cloud credentials
 └── docs/evidence/               Captured output from the deployment, redacted
 ```
 

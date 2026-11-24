@@ -170,13 +170,12 @@ tflint --recursive
 
 ```bash
 cd infra
-export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 terraform test
 ```
 
 Expect `Success! 4 passed, 0 failed.`
 
-> `terraform test` needs the `az login` session, because the provider signs in during plan. It still creates nothing: `command = plan` asserts against the plan only.
+> The tests run against mocked providers. Terraform loads `azurerm` and `azapi` for their schemas and their validation but never configures them, so no Azure session is needed and nothing is contacted. `command = plan` asserts against the plan only.
 
 A test that has never been seen failing is not a test that can be trusted. In `infra/data.tf`, change the Cosmos DB line `public_network_access_enabled = false` to `true` and run `terraform test` again. The first test must fail with the message written in `tests/posture.tftest.hcl`. Restore the value and confirm 4 pass.
 
@@ -534,7 +533,7 @@ Expect well under a dollar for one run.
 | Cosmos DB fails with `ServiceUnavailable` and "high demand" | The region is not accepting new accounts for this subscription type | Same fix: change `location`. The check in Step 9 finds this before the apply |
 | Not sure a region will grant an App Service plan | Quota differs by region and subscription type | `terraform apply -target=azurerm_service_plan.this` creates only the resource group and the plan, in under a minute. If it works, run the full `terraform apply` |
 | `az webapp deploy` gives up with `site failed to start within 10 mins`, but `/health` prints `ok` | The command's own tracker did not see the instance report as started. The code is deployed and running | Confirm with `az webapp log deployment list -g "$RG" -n "$APP"` (status `4`, complete) and `az webapp troubleshoot status -g "$RG" -n "$APP"` (state `Started`), then carry on |
-| `terraform test` fails to authenticate | The provider signs in during plan | `az login`, then export `ARM_SUBSCRIPTION_ID` |
+| `terraform test` fails with `expected "tenant_id" to be a valid UUID` | A mock returns a random string for each value Azure would supply, and the provider still validates it | Give the mock a real-looking value, as `tests/posture.tftest.hcl` does for the tenant |
 | `subscription ID could not be determined` | `ARM_SUBSCRIPTION_ID` is not set in this shell | Re-run the `export` from Step 9 |
 | `$URL` shows a default Azure page | The code is not deployed yet, or the build is still running | Step 11, then wait a few minutes |
 | `/` returns `500` | Role or DNS propagation, in the first minutes | Wait and retry. `az webapp log tail -g "$RG" -n "$APP"` shows the error |

@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 # No id-token, no Azure credentials. Nothing in this workflow can touch a cloud
-# resource. Formatting, validation and linting do not need cloud access.
+# resource. Formatting, validation, the unit tests and linting do not need
+# cloud access.
 permissions:
   contents: read
 
@@ -31,6 +32,11 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
+
+      # The tests use mocked providers, so they run here without an Azure session.
+      - name: Unit tests
+        working-directory: infra
+        run: terraform test
 
       - name: Set up TFLint
         uses: terraform-linters/setup-tflint@v4

@@ -6,7 +6,7 @@
 [![Identity](https://img.shields.io/badge/Secrets%20in%20code-none-brightgreen)](#)
 [![Network](https://img.shields.io/badge/Data%20tier-private%20only-red)](#)
 
-A web application on Azure App Service whose database and secret store have **no public network path and accept no keys**. The app reaches Cosmos DB and Key Vault through private endpoints, signs in with a managed identity, and is watched by Log Analytics, Application Insights and an alert that has been made to fire on purpose. Built with Terraform, deployed in one session, verified against live Azure, and torn down in that session. [Limits](#limits) says what it does not do.
+A web application on Azure App Service whose database and secret store **refuse data requests from the public network and accept no keys**. The app reaches Cosmos DB and Key Vault through private endpoints, signs in with a managed identity, and is watched by Log Analytics, Application Insights and an alert that has been made to fire on purpose. Built with Terraform, deployed in one session, verified against live Azure, and torn down in that session. [Limits](#limits) says what it does not do.
 
 > **Evidence status:** Deployed and verified on 19 November 2026 (UTC), then removed. No Azure resource remains.
 > It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md). The full deployment ran on the first commit, `6631a6f`. Its first teardown failed. The fix, which release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0) contains, was then applied and destroyed on its own. The whole app has not been deployed together with that fix.
@@ -26,7 +26,7 @@ The usual first version of a cloud web app has a database connection string past
 - **A public database endpoint** is protected only by that key.
 - **No monitoring** means the first person to notice a failure is a customer.
 
-**The delivery:** an app that holds no credential at all, a data tier that cannot be reached from outside the virtual network even by the subscription owner, and an alert that is proven to work.
+**The delivery:** an app that stores no key or password for its data, a data tier that refuses data requests from the public network, the subscription owner's included, and an alert that has been seen firing.
 
 ---
 
@@ -40,7 +40,7 @@ graph LR
         App["App Service (Linux, Python)<br/>user-assigned managed identity"]
 
         subgraph VNET["vnet-webapp-cac-001 · 10.60.0.0/16"]
-            SA["snet-app 10.60.1.0/24<br/>app's outbound traffic"]
+            SA["snet-app 10.60.1.0/24<br/>app's outbound traffic<br/>to private addresses"]
             SP["snet-pe 10.60.2.0/24<br/>443 from snet-app @200<br/>DenyAllInbound @4096"]
         end
 
@@ -75,10 +75,10 @@ Time (UTC)  Operation  Result     Caller address           Caller               
 
 | Claim | Proof |
 |---|---|
-| The app works with no credential anywhere | Counter rises and `secret_from_key_vault` is `true`: [`03-app-works.txt`](docs/evidence/03-app-works.txt) |
-| The app's identity can do two things and nothing else | Read secrets in one vault, read and write items in one database: [`04-identity-and-least-privilege.txt`](docs/evidence/04-identity-and-least-privilege.txt) |
-| The data tier has no public path | Key Vault answers `ForbiddenByConnection`. Cosmos DB, given a valid Entra ID token from the internet, answers `403`, blocked by the account firewall: [`05-data-tier-private.txt`](docs/evidence/05-data-tier-private.txt) |
-| Every request and every vault access is logged | [`06-logs-and-traces.txt`](docs/evidence/06-logs-and-traces.txt) |
+| The app reaches its data with no stored key or connection string | Counter rises and `secret_from_key_vault` is `true`: [`03-app-works.txt`](docs/evidence/03-app-works.txt) |
+| The app's identity holds two role assignments and nothing else | Read secrets in one vault. Read, write, query and delete items in one database: [`04-identity-and-least-privilege.txt`](docs/evidence/04-identity-and-least-privilege.txt) |
+| Cosmos DB and Key Vault have no public data path | Key Vault answers `ForbiddenByConnection`. Cosmos DB, given a valid Entra ID token from the internet, answers `403`, blocked by the account firewall: [`05-data-tier-private.txt`](docs/evidence/05-data-tier-private.txt) |
+| Requests to the app and accesses to the vault are logged | [`06-logs-and-traces.txt`](docs/evidence/06-logs-and-traces.txt) |
 | The alert has been seen firing | 12 errors at 02:58, fired at 03:01, resolved at 03:08: [`07-alert-fired.txt`](docs/evidence/07-alert-fired.txt) |
 | The tests can fail | Open Cosmos DB to the internet, watch 1 of 4 fail, restore: [`01-unit-tests.txt`](docs/evidence/01-unit-tests.txt) |
 | Nothing was left behind | The first `terraform destroy` failed. That, the fix, and the run proving the fix are all recorded. The subscription ended with 0 resources and nothing soft-deleted: [`08-teardown.txt`](docs/evidence/08-teardown.txt) |
@@ -89,11 +89,11 @@ Time (UTC)  Operation  Result     Caller address           Caller               
 
 | Decision | Reasoning |
 |---|---|
-| **Managed identity, not a connection string** | The app proves who it is to Entra ID and receives a short-lived token. There is no key to leak, store or rotate. |
+| **Managed identity, not a database key** | The app proves who it is to Entra ID and receives a short-lived token. The app holds no database key to leak, store or rotate. |
 | **Cosmos DB account keys disabled** | `local_authentication_enabled = false` removes key authentication entirely. Identity-based access is not just preferred, it is the only option. |
-| **Public network access disabled on both data services** | The only route in is a private endpoint inside the virtual network. Verified from both sides: the vault's audit log shows the app's own identity refused from a public address and allowed over the private endpoint, and the subscription owner, even after being granted the secrets role, is refused by the network. |
-| **User-assigned identity, created before the app** | Every permission exists before the app first starts, so the Key Vault reference resolves on first boot instead of failing until a restart. |
-| **Least-privilege roles** | `Key Vault Secrets User` can read secret values and their metadata. It cannot write or delete a secret, or change who has access. The Cosmos DB role is scoped to one database, not the account. |
+| **Public network access disabled on both data services** | The only route to the data for the app, or for any user, is a private endpoint inside the virtual network. Verified from both sides: the vault's audit log shows the app's own identity refused from a public address and allowed over the private endpoint, and the subscription owner, even after being granted the secrets role, is refused by the network. |
+| **User-assigned identity, created before the app** | Every role assignment is created before the app, so the Key Vault reference can resolve at first start instead of failing until a restart. |
+| **Least-privilege roles** | `Key Vault Secrets User` can read secret values and their metadata. It cannot write or delete a secret, or change who has access. The Cosmos DB role is the built-in data contributor, scoped to one database, not the account. It also allows querying and deleting items. |
 | **Secret written through the control plane** | Terraform creates the secret through Azure Resource Manager, never connecting to the vault itself. So the vault needs no firewall exception for the machine running Terraform. It is written by an action, not as a managed resource: Resource Manager has no DELETE for a secret, and the first real teardown failed on exactly that. |
 | **Key Vault reference in app settings** | The platform fetches the secret and hands the app the value. The secret never appears in the app's configuration, the repository or a pipeline. |
 | **Default-deny on the private endpoint subnet** | Only HTTPS from the app's subnet is allowed; the catch-all deny sits at 4096 so any broken allow fails closed. |

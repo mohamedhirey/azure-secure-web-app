@@ -12,10 +12,10 @@ It ran in **West US 3**, not the project's default of Canada Central. The subscr
 |---|---|
 | The security settings are tested, and the test can fail | [`01-unit-tests.txt`](01-unit-tests.txt): 4 pass. With Cosmos DB opened to the public network, 1 fails with the message written for it. Restored, 4 pass. |
 | The plan was read before anything was applied | [`02-plan-and-apply.txt`](02-plan-and-apply.txt): 32 to add, no public IP, both data services private in the plan. Then the apply, and what existed afterwards. |
-| The app works with no credential anywhere | [`03-app-works.txt`](03-app-works.txt): the counter rises, so the app read and wrote Cosmos DB as its managed identity. `secret_from_key_vault` is `true`, so the platform fetched the secret the same way. |
-| The app's identity can do two things and nothing else | [`04-identity-and-least-privilege.txt`](04-identity-and-least-privilege.txt): `Key Vault Secrets User` on one vault. The Cosmos DB data role on one database, not the account. |
-| The data tier has no public path | [`05-data-tier-private.txt`](05-data-tier-private.txt): Key Vault answers `ForbiddenByConnection`. Cosmos DB, given a valid Entra ID token from the internet, answers `403`, blocked by the account firewall. |
-| Every request and every vault access is logged | [`06-logs-and-traces.txt`](06-logs-and-traces.txt): HTTP logs, the Key Vault audit log, and the traces the app sent to Application Insights. |
+| The app reaches its data with no stored key or connection string | [`03-app-works.txt`](03-app-works.txt): the counter rises, so the app read and wrote Cosmos DB as its managed identity. `secret_from_key_vault` is `true`, so the platform fetched the secret the same way. |
+| The app's identity holds two role assignments and nothing else | [`04-identity-and-least-privilege.txt`](04-identity-and-least-privilege.txt): `Key Vault Secrets User` on one vault. The Cosmos DB data role on one database, not the account. |
+| Cosmos DB and Key Vault have no public data path | [`05-data-tier-private.txt`](05-data-tier-private.txt): Key Vault answers `ForbiddenByConnection`. Cosmos DB, given a valid Entra ID token from the internet, answers `403`, blocked by the account firewall. |
+| Requests to the app and accesses to the vault are logged | [`06-logs-and-traces.txt`](06-logs-and-traces.txt): HTTP logs, the Key Vault audit log, and the traces the app sent to Application Insights. |
 | The alert has been seen firing | [`07-alert-fired.txt`](07-alert-fired.txt): 12 deliberate errors at 02:58. Fired at 03:01. Resolved on its own at 03:08. |
 | Nothing was left behind | [`08-teardown.txt`](08-teardown.txt): the first `terraform destroy` failed, which is recorded along with the fix and the run that proves the fix. Afterwards the whole subscription held 0 resource groups, 0 resources, and nothing soft-deleted. |
 

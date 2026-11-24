@@ -139,7 +139,7 @@ Each file carries one or two design decisions. Confirm the code does what this t
 | `infra/data.tf` | Cosmos DB sets `public_network_access_enabled = false` and `local_authentication_enabled = false`: no internet path, and account keys are refused. |
 | `infra/data.tf` | The secret is written through Azure Resource Manager, the control plane. Terraform never connects to the vault, so the vault needs no firewall exception. |
 | `infra/identity.tf` | The identity is user-assigned and created before the app, so both role assignments exist by the time the app first starts. |
-| `infra/app.tf` | `DEMO_API_KEY` is a Key Vault reference. The platform fetches the secret with the app's identity, and the value appears in no app setting, file or pipeline. |
+| `infra/app.tf` | `DEMO_API_KEY` is a Key Vault reference. The platform fetches the secret with the app's identity, and the value appears in no app setting, repository file or pipeline. |
 | `app/app.py` | The app connects to Cosmos DB with `ManagedIdentityCredential`: a short-lived token, no key and no password. |
 
 **Done when** the code matches every row.
@@ -210,7 +210,7 @@ gh run watch
 
 Run Steps 9 to 17 in one shell session, inside `infra/`. Later steps reuse the variables set in Step 10.
 
-If the deployment cannot be completed, go to Step 17 and remove what exists. A complete repository with nothing deployed is a fine outcome. Resources left running and forgotten are not.
+If the deployment cannot be completed, go to Step 17 and remove what exists. Do not leave resources running.
 
 ---
 
@@ -312,7 +312,7 @@ Expect JSON like `{"secret_from_key_vault":true,"visits":2}`, with `visits` one 
 
 Those two fields are the whole design, proven end to end:
 
-- **`visits` rising** means the app reached Cosmos DB through the private endpoint, signed in as its managed identity, and both read and wrote an item, with no key anywhere.
+- **`visits` rising** means the app reached Cosmos DB through the private endpoint, signed in as its managed identity, and both read and wrote an item, with no database key in the app or its settings.
 - **`secret_from_key_vault: true`** means the platform fetched the secret from Key Vault through the private endpoint, using that same identity.
 
 The first request can take 20 seconds while the app warms up. A `500` in the first minute or two is role and DNS propagation: wait and retry. If `secret_from_key_vault` is `false`, run `az webapp restart -g "$RG" -n "$APP"` and try again. References resolve when the app starts.

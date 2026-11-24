@@ -10,6 +10,7 @@ A web application on Azure App Service whose database and secret store have **no
 
 > **Evidence status:** Deployed and verified on 19 November 2026 (UTC), then removed. No Azure resource remains.
 > It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md) and describes release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0).
+> Nothing has been deployed since that release, and no resource has changed. Later changes are tests, CI and documentation, checked on every pull request. Only the unit tests use mocked providers. The deployment and its evidence are from live Azure.
 
 **Author:** Mohamed Hirey — Azure Cloud Engineer · [linkedin.com/in/mohamedhirey](https://linkedin.com/in/mohamedhirey)
 

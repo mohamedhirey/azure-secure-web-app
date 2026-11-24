@@ -1,5 +1,20 @@
-# command = plan, so nothing is created in Azure. These assert against the plan.
-# An `az login` session is still needed, because the provider signs in to plan.
+# These run against mocked providers. Terraform loads azurerm and azapi for
+# their schemas and their validation but never configures them, so the tests
+# need no Azure account and contact nothing. command = plan asserts against the
+# plan only.
+
+mock_provider "azurerm" {
+  # A mock invents a random string for each value Azure would return. Key
+  # Vault's tenant_id must be a UUID, and the provider's validation still
+  # checks it, so the tenant is given one.
+  mock_data "azurerm_client_config" {
+    defaults = {
+      tenant_id = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+}
+
+mock_provider "azapi" {}
 
 variables {
   alert_email = "nobody@example.com"

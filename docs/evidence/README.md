@@ -1,6 +1,6 @@
 # Deployment evidence
 
-This web app and everything under it was deployed to a real Azure subscription, verified and removed again on **19 November 2026 (UTC)**. Everything in this folder was captured during that session. It describes release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0).
+This web app and everything under it was deployed to a real Azure subscription, verified and removed again on **19 November 2026 (UTC)**. Everything in this folder was captured during that session. The full deployment ran on the first commit, `6631a6f`. The teardown fix, which release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0) contains, was applied and destroyed separately, and [`08-teardown.txt`](08-teardown.txt) records both.
 
 Subscription, tenant and identity IDs, the random suffix in resource names, public addresses and the alert email address are redacted. Long Terraform output is condensed to the lines that carry the result. Nothing is altered.
 

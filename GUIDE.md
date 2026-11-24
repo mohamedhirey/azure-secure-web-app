@@ -471,7 +471,7 @@ az rest --method get \
   --query "value[].name" -o tsv                           # expect: nothing
 ```
 
-"Deleted" is not always gone. Key Vault and Log Analytics both keep a deleted resource recoverable for a while, data included. The provider settings in `infra/versions.tf` purge both, and these checks prove it. If a vault is still listed, remove it by hand:
+"Deleted" is not always gone. Key Vault and Log Analytics both keep a deleted resource recoverable for a while, data included. Terraform purges both on destroy, and these checks prove it. The workspace is purged because `infra/versions.tf` sets `permanently_delete_on_destroy`. The vault is purged by the provider's default, `purge_soft_delete_on_destroy`, which this repository does not set. If a vault is still listed, remove it by hand:
 
 ```bash
 az keyvault purge --name "$KV"

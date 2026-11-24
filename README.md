@@ -6,10 +6,10 @@
 [![Identity](https://img.shields.io/badge/Secrets%20in%20code-none-brightgreen)](#)
 [![Network](https://img.shields.io/badge/Data%20tier-private%20only-red)](#)
 
-A web application on Azure App Service whose database and secret store have **no public network path and accept no keys**. The app reaches Cosmos DB and Key Vault through private endpoints, signs in with a managed identity, and is watched by Log Analytics, Application Insights and an alert that has been made to fire on purpose. Built with Terraform, deployed once, verified against live Azure, and torn down in the same session.
+A web application on Azure App Service whose database and secret store have **no public network path and accept no keys**. The app reaches Cosmos DB and Key Vault through private endpoints, signs in with a managed identity, and is watched by Log Analytics, Application Insights and an alert that has been made to fire on purpose. Built with Terraform, deployed in one session, verified against live Azure, and torn down in that session. [Limits](#limits) says what it does not do.
 
 > **Evidence status:** Deployed and verified on 19 November 2026 (UTC), then removed. No Azure resource remains.
-> It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md) and describes release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0).
+> It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md). The full deployment ran on the first commit, `6631a6f`. Its first teardown failed. The fix, which release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0) contains, was then applied and destroyed on its own. The whole app has not been deployed together with that fix.
 > Nothing has been deployed since that release, and no resource has changed. Later changes are tests, CI and documentation, checked on every pull request. Only the unit tests use mocked providers. The deployment and its evidence are from live Azure.
 
 **Author:** Mohamed Hirey — Azure Cloud Engineer · [linkedin.com/in/mohamedhirey](https://linkedin.com/in/mohamedhirey)
@@ -100,6 +100,28 @@ Time (UTC)  Operation  Result     Caller address           Caller               
 | **No publishing passwords** | FTP and basic-auth deployment are disabled. Code is deployed with an Entra ID sign-in. |
 | **An alert that has been seen firing** | The app has a `/fail` endpoint for exactly this. An alert that has never fired is an alert that has not been tested. |
 | **Local state** | One person, one session, created and destroyed the same day. The companion project demonstrates keyless remote state. |
+
+---
+
+## Limits
+
+What this build does not do, and what a production version would add.
+
+| Limit | A production version would |
+|---|---|
+| **"Private" means the data plane.** Requests for data from outside the virtual network are refused. Management operations go through Azure Resource Manager and are not: an Owner can still write a secret, or switch public access back on, from anywhere. Nothing here prevents that or alerts on it. Key Vault's bypass for trusted Microsoft services is also left at its default. | Deny those changes with Azure Policy, add resource locks, and alert on the activity log. |
+| **The app's own endpoint is public and has no sign-in.** Anyone on the internet can reach it over HTTPS, nothing filters the requests, and every request to `/` reads and writes Cosmos DB. The `/fail` route, which exists to test the alert, is open too. So is the deployment endpoint, although it accepts Entra ID sign-ins only. | Put Azure Front Door or Application Gateway with a web application firewall in front, restrict the app to traffic from there, close the deployment endpoint to public traffic, add authentication, and remove `/fail`. |
+| **Outbound traffic is not controlled.** Only traffic to private addresses goes through the virtual network. Everything else leaves the app directly. | Route all outbound traffic through the virtual network and a firewall. |
+| **Telemetry is sent with a connection string**, held in an app setting. It is the one credential-like value in the app's settings. Microsoft treats it as an identifier, not a secret, but anyone who has it can send telemetry to this resource. | Switch off local authentication on Application Insights, give the app's identity the `Monitoring Metrics Publisher` role, and send telemetry as that identity. |
+| **Monitoring is reached over public endpoints.** Private endpoints cover Cosmos DB and Key Vault only. | Add an Azure Monitor Private Link Scope with a private endpoint, and switch off public ingestion and query. |
+| **Cosmos DB's own request log is not collected.** The app's calls appear in Application Insights. A request from any other caller would leave no record. | Add a diagnostic setting for the account. |
+| **Key Vault purge protection is off**, and soft-delete retention is at its 7-day minimum. With purge protection on, a deleted vault stays recoverable until retention ends, and the teardown check in this repository could not pass. | Turn purge protection on, with the default 90-day retention. |
+| **Terraform state is local and holds secrets in plain text**: the demo secret, and the keys Azure issues for Cosmos DB, Log Analytics and Application Insights. | Use remote state with no account keys, as the companion project does, and set the secret outside Terraform. |
+| **The secret is written once and never rotated.** | Rotate it, and give it an expiry date. |
+| **One instance, one region.** A single B1 instance, and a serverless Cosmos DB account, which cannot add a region. No zone redundancy, and backups are the platform default. The health check does not test the database or the vault. | Size and replicate for the availability the workload needs. |
+| **Terraform and the code are both deployed from a workstation**, by an account that holds Owner on the subscription. | Deploy from a pipeline with OIDC and narrower roles, as the companion project deploys its network. |
+| **Most resource names carry the `cac` region code whatever region is chosen.** The recorded deployment ran in West US 3 under those names. | Derive the code from the location. |
+| **One alert rule, one email address.** | Add alerts on latency and availability, and an on-call route. |
 
 ---
 

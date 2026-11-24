@@ -9,7 +9,7 @@
 A web application on Azure App Service whose database and secret store have **no public network path and accept no keys**. The app reaches Cosmos DB and Key Vault through private endpoints, signs in with a managed identity, and is watched by Log Analytics, Application Insights and an alert that has been made to fire on purpose. Built with Terraform, deployed once, verified against live Azure, and torn down in the same session.
 
 > **Evidence status:** Deployed and verified on 19 November 2026 (UTC), then removed. No Azure resource remains.
-> It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md).
+> It ran in West US 3, because the subscription was not allowed a Cosmos DB account in Canada Central. The captured proof is in [`docs/evidence/`](docs/evidence/README.md) and describes release [`v1.0.0`](https://github.com/mohamedhirey/azure-secure-web-app/releases/tag/v1.0.0).
 
 **Author:** Mohamed Hirey — Azure Cloud Engineer · [linkedin.com/in/mohamedhirey](https://linkedin.com/in/mohamedhirey)
 
